@@ -9,21 +9,30 @@ use std::time::SystemTime;
 
 const IGNORED_FILES: [&str; 2] = [".DS_Store", ".gitignore"];
 const WHITELISTED_FILES: [&str; 1] = ["png"];
+const FILE_EXPIRATION_TIME_IN_SECONDS: u64 = 10;
 
 fn get_args() -> Vec<String> {
     std::env::args().collect()
 }
 
 fn main() {
-    print!("{}[2J", 27 as char);
+    // print!("{}[2J", 27 as char);
     let cleaner_thread = thread::spawn(|| {
         let args = get_args();
+        if args.len() < 2 {
+            println!("Error: No path provided");
+            std::process::exit(1);
+        }
         let path = args[1].clone();
         cleaner(&path);
     });
 
     let watcher_thread = thread::spawn(|| {
         let args = get_args();
+        if args.len() < 2 {
+            println!("Error: No path provided");
+            std::process::exit(1);
+        }
         let path = args[1].clone();
         if let Err(e) = watch(&path) {
             println!("error: {:?}", e)
@@ -52,18 +61,13 @@ fn file_type_is_whitelisted(file: &File) -> bool {
     }
 }
 
-fn file_is_whitelisted(file: &File) -> bool {
-    if WHITELISTED_FILES.contains(&file.name.as_str()) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-fn move_file_to_bin(file: &File) {
-    println!("Moving File {} to bin", file.name);
-    trash::delete(&file.path).unwrap();
-}
+// fn file_is_whitelisted(file: &File) -> bool {
+//     if WHITELISTED_FILES.contains(&file.name.as_str()) {
+//         return true;
+//     } else {
+//         return false;
+//     }
+// }
 
 fn delete_file(file: &File) {
     fs::remove_file(&file.path).unwrap()
@@ -76,13 +80,10 @@ fn cleaner(path: &str) {
         match files {
             Ok(files) => {
                 files.iter().for_each(|file| {
-                    // println!("File: {:#?}", file);
-
                     match file.modified.elapsed() {
                         Ok(elapsed) => {
-                            if elapsed.as_secs() > 10 && file_type_is_whitelisted(&file) {
+                            if elapsed.as_secs() > FILE_EXPIRATION_TIME_IN_SECONDS && file_type_is_whitelisted(&file) {
                                 delete_file(&file);
-                                // move_file_to_bin(&file);
                             }
                         }
                         Err(e) => {
@@ -150,8 +151,13 @@ fn get_file_info(path: &str) -> File {
 }
 
 fn handle_create_event(event: &notify::Event, path: &str) {
+    let event_file_path = Path::new(&event.paths[0]);
+    if event_file_path.is_dir() {
+        return;
+    }
     let file = get_mofified_file(&event, &path);
     let notification_string = format!("{} was created", file.name);
+    
     println!("{}", notification_string);
 }
 
@@ -195,21 +201,6 @@ fn get_mofified_file(event: &notify::Event, path: &str) -> File {
     return modified_file;
 }
 
-fn handle_modify_event(event: &notify::Event, path: &str) {
-    let modified_file = get_mofified_file(&event, &path);
-    if !file_type_is_whitelisted(&modified_file) {
-        return;
-    }
-    // let event_metadata = event.
-    let notification_string = format!("{} was modified", modified_file.name);
-
-    println!("{}", notification_string);
-    Notification::new()
-        .summary("File Modified")
-        .body(&notification_string)
-        .show()
-        .unwrap();
-}
 
 fn handle_remove_event(path: &str) {
     let notification_string = format!("A file was removed from {}", &path);
@@ -238,6 +229,7 @@ fn watch(path: &str) -> notify::Result<()> {
                         // handle_modify_event(&event, &path);
                     }
                     notify::EventKind::Remove(_) => {
+                        println!("File Removed: {:?}", &path);
                         handle_remove_event(&path);
                     }
                     notify::EventKind::Other => {}
