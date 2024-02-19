@@ -6,41 +6,62 @@ use std::path::Path;
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
+use clap::Parser;
+use std::sync::Arc;
+
+/// Simple program to greet a person
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Name of the person to greet
+    #[arg(short, long)]
+    path: String,
+
+    /// File to monitor
+    #[arg(short, long)]
+    file_type: String,
+
+    /// File expiration time in seconds
+    #[arg(short, long, default_value_t = 10)]
+    expiration: u64,
+
+    /// Number of times to greet
+    #[arg(short, long, default_value_t = 1)]
+    count: u8,
+}
 
 const IGNORED_FILES: [&str; 2] = [".DS_Store", ".gitignore"];
-const WHITELISTED_FILES: [&str; 1] = ["png"];
-const FILE_EXPIRATION_TIME_IN_SECONDS: u64 = 10;
 
-fn get_args() -> Vec<String> {
-    std::env::args().collect()
-}
 
 fn main() {
     // print!("{}[2J", 27 as char);
-    let cleaner_thread = thread::spawn(|| {
-        let args = get_args();
-        if args.len() < 2 {
-            println!("Error: No path provided");
-            std::process::exit(1);
-        }
-        let path = args[1].clone();
-        cleaner(&path);
+    let args = Args::parse();
+
+    for _ in 0..args.count {
+        println!("Directory: {}, File: {}!, Expire in {} seconds", args.path, args.file_type, args.expiration);
+    }
+
+    let path =Arc::new(String::from(&args.path));
+    let file_type = String::from(&args.file_type);
+    let expiration = args.expiration;
+
+    let cleaner_path = Arc::clone(&path);
+
+    let cleaner_thread = thread::spawn(move || {
+        cleaner(&cleaner_path, &file_type, &expiration);
     });
 
-    let watcher_thread = thread::spawn(|| {
-        let args = get_args();
-        if args.len() < 2 {
-            println!("Error: No path provided");
-            std::process::exit(1);
-        }
-        let path = args[1].clone();
-        if let Err(e) = watch(&path) {
+    let watcher_path = Arc::clone(&path);
+
+    let watcher_thread = thread::spawn(move || {
+        if let Err(e) = watch(&watcher_path) {
             println!("error: {:?}", e)
         }
     });
 
     cleaner_thread.join().unwrap();
     watcher_thread.join().unwrap();
+
 }
 
 #[derive(Debug)]
@@ -53,27 +74,11 @@ struct File {
     file_type: String,
 }
 
-fn file_type_is_whitelisted(file: &File) -> bool {
-    if WHITELISTED_FILES.contains(&file.file_type.as_str()) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-// fn file_is_whitelisted(file: &File) -> bool {
-//     if WHITELISTED_FILES.contains(&file.name.as_str()) {
-//         return true;
-//     } else {
-//         return false;
-//     }
-// }
-
 fn delete_file(file: &File) {
     fs::remove_file(&file.path).unwrap()
 }
 
-fn cleaner(path: &str) {
+fn cleaner(path: &str, file_type: &str, expiration: &u64) {
     println!("Cleaning: {}", &path);
     loop {
         let files = get_files_in_dir(&path);
@@ -82,7 +87,7 @@ fn cleaner(path: &str) {
                 files.iter().for_each(|file| {
                     match file.modified.elapsed() {
                         Ok(elapsed) => {
-                            if elapsed.as_secs() > FILE_EXPIRATION_TIME_IN_SECONDS && file_type_is_whitelisted(&file) {
+                            if elapsed.as_secs() > *expiration && &file.file_type.as_str() == &file_type {
                                 delete_file(&file);
                             }
                         }
