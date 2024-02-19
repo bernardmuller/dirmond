@@ -11,6 +11,7 @@ A Rust-based daemon employing multithreading to actively monitor a specified dir
 -   CLI commands
 -   Multi directory monitoring
 -   Mutliple file type monitoring
+-   Save preferences to config file
 -   Basic GUI
 
 ## Installation
